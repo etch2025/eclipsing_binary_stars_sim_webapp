@@ -15,6 +15,7 @@ Major Assumptions (unchanged from the original script):
   you choose as the "independent input" below, the other is derived automatically.
 """
 
+import io
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
@@ -449,7 +450,7 @@ def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
 # ====================================================
 
 with st.sidebar:
-    st.header("⭐ System")
+    st.header("Input Parameters")
     target = st.text_input("Target Name", "Algol AB (Beta Persei)")
 
     st.subheader("Primary Star (Star 1)")
@@ -494,7 +495,10 @@ with st.sidebar:
 # Run + Render
 # ====================================================
 
-st.title("🌓 Eclipsing Binary Star Light Curve Simulator")
+st.title("Eclipsing Binary Star Light Curve Simulator")
+st.caption("Powered by Matplotlib and NumPy.")
+st.markdown("[Locally-Run Version](https://github.com/etch2025/eclipsing_binary_stars_sim)")
+
 
 res = simulate(m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, omega_deg, n_samples)
 
@@ -506,10 +510,24 @@ fig = build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
                     primary_color, secondary_color, m1, L1, m2, L2)
 st.pyplot(fig, width='stretch')
 
-st.subheader("📋 Diagnostics")
+# Downloadable PNG, named to match the original script's savefig() convention:
+# f'{target}_{(P/86400):.3f}d_{sma/AU:.3f}AU_{e:.3f}.png'
+png_buf = io.BytesIO()
+fig.savefig(png_buf, format="png", dpi=500, bbox_inches="tight")
+png_buf.seek(0)
+download_name = f"{target}_{(res['P']/86400):.3f}d_{res['sma']/AU:.3f}AU_{e:.3f}.png"
+
+st.download_button(
+    label="Download light curve (PNG)",
+    data=png_buf,
+    file_name=download_name,
+    mime="image/png",
+)
+
+st.subheader("Diagnostics")
 st.code(build_diagnostics_text(res, m1, m2, r1, e, omega_deg), language=None)
 
-with st.expander("ℹ️ About this simulator"):
+with st.expander("About this simulator"):
     st.markdown(
         """
         - **Uniform surface brightness** is assumed (no limb darkening) -- flux is proportional to
