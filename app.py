@@ -472,14 +472,14 @@ with st.sidebar:
     )
     orbit_input = "P" if orbit_choice == "Period (P)" else "a"
     if orbit_input == "P":
-        P_days_in = st.number_input("Period P (days)", 0.001, 100_000.0, 2.867328, format="%.6f", key="P_days")
+        P_days_in = st.number_input("Period P (days)", 0.0001, 100_000.0, 2.867328, format="%.6f", key="P_days")
         a_AU_in = 0.062043  # unused placeholder
     else:
         a_AU_in = st.number_input("Semi-Major Axis a (AU)", 0.0001, 1000.0, 0.062043, format="%.6f", key="a_AU")
         P_days_in = 2.867328  # unused placeholder
 
     i_deg = st.slider("Inclination i (deg)", 0.0, 180.0, 98.7, 0.1, key="i_deg")
-    e = st.slider("Eccentricity e", 0.0, 0.95, 0.0, 0.01, key="e")
+    e = st.slider("Eccentricity e", 0.0, 0.99, 0.0, 0.01, key="e")
     omega_deg = st.slider("Argument of Periastron ω (deg)", 0.0, 360.0, 0.0, 1.0, key="omega_deg")
 
     st.subheader("Simulation Settings")
