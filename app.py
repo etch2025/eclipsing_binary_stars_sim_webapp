@@ -454,14 +454,14 @@ with st.sidebar:
     target = st.text_input("Target Name", "Algol AB (Beta Persei)")
 
     st.subheader("Primary Star (Star 1)")
-    m1 = st.number_input("Mass m₁ (M☉)", 0.01, 200.0, 3.17, 0.01, key="m1")
-    r1 = st.number_input("Radius r₁ (R☉)", 0.01, 200.0, 2.73, 0.01, key="r1")
+    m1 = st.number_input("Mass m₁ (M☉)", 0.001, 300.0, 3.17, 0.01, key="m1")
+    r1 = st.number_input("Radius r₁ (R☉)", 0.001, 300.0, 2.73, 0.01, key="r1")
     L1 = st.number_input("Luminosity L₁ (L☉)", 0.0001, 1_000_000.0, 182.0, 0.1, key="L1")
     primary_color = st.color_picker("Color 1", "#00BFFF", key="c1")
 
     st.subheader("Secondary Star (Star 2)")
-    m2 = st.number_input("Mass m₂ (M☉)", 0.01, 200.0, 0.7, 0.01, key="m2")
-    r2 = st.number_input("Radius r₂ (R☉)", 0.01, 200.0, 3.48, 0.01, key="r2")
+    m2 = st.number_input("Mass m₂ (M☉)", 0.001, 300.0, 0.7, 0.01, key="m2")
+    r2 = st.number_input("Radius r₂ (R☉)", 0.001, 300.0, 3.48, 0.01, key="r2")
     L2 = st.number_input("Luminosity L₂ (L☉)", 0.0001, 1_000_000.0, 6.92, 0.1, key="L2")
     secondary_color = st.color_picker("Color 2", "#FFA500", key="c2")
 
