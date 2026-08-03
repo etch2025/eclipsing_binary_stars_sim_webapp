@@ -396,7 +396,7 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         ax.set_ylim([-lim, lim])
         ax.set_xlabel(r"Solar Radii $R_\odot$")
         ax.set_ylabel(r"Solar Radii $R_\odot$")
-        ax.set_title(rf"{title}" + "\n" + rf"t = {t_val/60:.2f} min" + "\n" + rf"L = {L_t:.2f} $L_\odot$")
+        ax.set_title(rf"{title}" + "\n" + rf"t = {t_val/P:.3f}" + "\n" + rf"L = {L_t:.2f} $L_\odot$")
 
         ax.plot(orbit_x, orbit_y, color='black', lw=1, zorder=1)
         star1 = Circle((0, 0), r1, color=primary_color, label='m1', zorder=(2 if z_t >= 0 else 3))
