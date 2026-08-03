@@ -454,14 +454,14 @@ with st.sidebar:
     target = st.text_input("Target Name", "Algol AB (Beta Persei)")
 
     st.subheader("Primary Star (Star 1)")
-    m1 = st.number_input("Mass m₁ (M☉)", 0.001, 300.0, 3.17, 0.001, key="m1")
-    r1 = st.number_input("Radius r₁ (R☉)", 0.001, 300.0, 2.73, 0.001, key="r1")
+    m1 = st.number_input("Mass m₁ (M☉)", 0.001, 300.000, 3.17, 0.001, key="m1")
+    r1 = st.number_input("Radius r₁ (R☉)", 0.001, 300.000, 2.73, 0.001, key="r1")
     L1 = st.number_input("Luminosity L₁ (L☉)", 0.0001, 1_000_000.0, 182.0, 0.001, key="L1")
     primary_color = st.color_picker("Color 1", "#00BFFF", key="c1")
 
     st.subheader("Secondary Star (Star 2)")
-    m2 = st.number_input("Mass m₂ (M☉)", 0.001, 300.0, 0.7, 0.001, key="m2")
-    r2 = st.number_input("Radius r₂ (R☉)", 0.001, 300.0, 3.48, 0.001, key="r2")
+    m2 = st.number_input("Mass m₂ (M☉)", 0.001, 200.000, 0.7, 0.001, key="m2")
+    r2 = st.number_input("Radius r₂ (R☉)", 0.001, 200.000, 3.48, 0.001, key="r2")
     L2 = st.number_input("Luminosity L₂ (L☉)", 0.0001, 1_000_000.0, 6.92, 0.001, key="L2")
     secondary_color = st.color_picker("Color 2", "#FFA500", key="c2")
 
@@ -472,7 +472,7 @@ with st.sidebar:
     )
     orbit_input = "P" if orbit_choice == "Period (P)" else "a"
     if orbit_input == "P":
-        P_days_in = st.number_input("Period P (days)", 0.0001, 100_000.0, 2.867328, format="%.6f", key="P_days")
+        P_days_in = st.number_input("Period P (days)", 0.001, 100_000.0, 2.867328, format="%.6f", key="P_days")
         a_AU_in = 0.062043  # unused placeholder
     else:
         a_AU_in = st.number_input("Semi-Major Axis a (AU)", 0.0001, 1000.0, 0.062043, format="%.6f", key="a_AU")
@@ -525,7 +525,7 @@ st.download_button(
 )
 
 st.subheader("Diagnostics")
-st.code(build_diagnostics_text(res, m1, m2, r1, e, omega_deg), language=None)
+st.markdown(build_diagnostics_text(res, m1, m2, r1, e, omega_deg), language=None)
 
 with st.expander("About this simulator"):
     st.markdown(
