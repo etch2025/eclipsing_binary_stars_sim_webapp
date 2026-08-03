@@ -319,19 +319,19 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
 
     if not res['eclipses_occur']:
         for k in range(n_periods):
-            ax_top.plot(t_arr + k * P, L_arr, 'black', label='Full Flux' if k == 0 else None)
+            ax_top.plot(t_arr / P + k, L_arr, 'black', label='Full Flux' if k == 0 else None)
         ax_top.set_ylim([0, 1.05 * L_total])
         panel_axes = [ax_p1, ax_p2, ax_p3, ax_p4]
         panel_times = [0, P / 4, P / 2, 3 * P / 4]
         panel_titles = ["Full System"] * 4
     else:
         for k in range(n_periods):
-            offset = k * P
-            ax_top.plot(t_arr + offset, L_arr, color='black', lw=1.2)
+            offset = k
+            ax_top.plot(t_arr / P + offset, L_arr, color='black', lw=1.2)
             for seg in pe_segs:
-                ax_top.plot(t_arr[seg] + offset, L_arr[seg], color='red', lw=1.5)
+                ax_top.plot(t_arr[seg] / P + offset, L_arr[seg], color='red', lw=1.5)
             for seg in se_segs:
-                ax_top.plot(t_arr[seg] + offset, L_arr[seg], color='blue', lw=1.5)
+                ax_top.plot(t_arr[seg] / P + offset, L_arr[seg], color='blue', lw=1.5)
         legend_lines = [Line2D([0], [0], color='black', label='Full Flux'),
                          Line2D([0], [0], color='red', label='Primary Eclipse'),
                          Line2D([0], [0], color='blue', label='Secondary Eclipse')]
@@ -376,9 +376,9 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
             + (f"Secondary Eclipse: dur {se['duration']/60:.2f} min, b = {se['d_min']/r1:.3f}" if se else "No Secondary Eclipse")
         )
 
-    ax_top.set_xlabel("Seconds")
+    ax_top.set_xlabel("Phase")
     ax_top.set_ylabel("Solar Luminosities")
-    ax_top.set_xlim([0, n_periods * P])
+    ax_top.set_xlim([0, n_periods])
 
     lim = 1.5 * a_Rsol * (1 + e)
     nu_full = np.linspace(0, 2 * np.pi, 500)
