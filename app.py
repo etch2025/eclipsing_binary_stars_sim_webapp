@@ -398,9 +398,9 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         ax.set_ylabel(r"Solar Radii $R_\odot$")
         ax.set_title(rf"{title}" + "\n" + rf"t = {t_val/60:.2f} min" + "\n" + rf"L = {L_t:.2f} $L_\odot$")
 
-        ax.plot(orbit_x, orbit_y, color='black', lw=1, zorder=3)
-        star1 = Circle((0, 0), r1, color=primary_color, label='m1', zorder=(2 if z_t >= 0 else 4))
-        star2 = Circle((x_t, y_t), r2, color=secondary_color, label='m2', zorder=(4 if z_t >= 0 else 2))
+        ax.plot(orbit_x, orbit_y, color='black', lw=1, zorder=1)
+        star1 = Circle((0, 0), r1, color=primary_color, label='m1', zorder=(2 if z_t >= 0 else 3))
+        star2 = Circle((x_t, y_t), r2, color=secondary_color, label='m2', zorder=(3 if z_t >= 0 else 2))
         ax.add_patch(star1)
         ax.add_patch(star2)
 
