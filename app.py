@@ -414,55 +414,35 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
 
 
 def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
-    """Build the diagnostics block as a list of (label, latex) pairs, each rendered
-    with st.latex so the numbers/units show up as typeset math rather than plain text."""
     P, sma, a_Rsol, r_peri = res['P'], res['sma'], res['a_Rsol'], res['r_peri']
     pe, se = res['pe'], res['se']
     geo_pe, geo_se, P_min = res['geo_pe'], res['geo_se'], res['P_min']
 
     lines = []
-    lines.append(("Orbital Period", rf"P = {P/(24*60*60):.3f}\ \text{{days}}"))
-    lines.append(("Semi-major Axis", rf"a = {sma/AU:.3f}\ \text{{AU}} \quad "
-                                      rf"(\text{{periastron: }} {r_peri:.3f}\ R_\odot,\ "
-                                      rf"\text{{apastron: }} {a_Rsol*(1+e):.3f}\ R_\odot)"))
-    lines.append(("Eccentricity & Argument of Periastron",
-                   rf"e = {e:.3f} \qquad \omega = {omega_deg:.3f}^\circ"))
-
+    lines.append(f"Orbital Period: {P/(24*60*60):.3f} days")
+    lines.append(f"Semi-major axis: {sma/AU:.4f} AU   (periastron: {r_peri:.3f} R☉, apastron: {a_Rsol*(1+e):.3f} R☉)")
+    lines.append(f"Eccentricity: {e:.3f}   Argument of Periastron: {omega_deg:.1f}°")
     if res['eclipses_occur']:
         if pe:
-            lines.append(("Primary Eclipse",
-                           rf"\text{{duration}} = {pe['duration']/60:.3f}\ \text{{min}}, \quad "
-                           rf"d_{{\min}} = {pe['d_min']:.3f}\ R_\odot, \quad "
-                           rf"L_{{\min}} = {pe['L_min']:.3f}\ L_\odot"))
+            lines.append(f"Primary Eclipse:   duration {pe['duration']/60:.3f} min, min separation {pe['d_min']:.3f} R☉, L_min = {pe['L_min']:.3f} L☉")
         if se:
-            lines.append(("Secondary Eclipse",
-                           rf"\text{{duration}} = {se['duration']/60:.3f}\ \text{{min}}, \quad "
-                           rf"d_{{\min}} = {se['d_min']:.3f}\ R_\odot, \quad "
-                           rf"L_{{\min}} = {se['L_min']:.3f}\ L_\odot"))
+            lines.append(f"Secondary Eclipse: duration {se['duration']/60:.3f} min, min separation {se['d_min']:.3f} R☉, L_min = {se['L_min']:.3f} L☉")
     else:
-        lines.append(("Eclipses", r"\text{No eclipses occur for this geometry.}"))
+        lines.append("No eclipses occur for this geometry.")
 
     if geo_pe:
-        lines.append(("Primary Transit Duration", rf"{geo_pe['duration']/60:.3f}\ \text{{minutes}}"))
-        lines.append(("Primary Impact Parameter",
-                       rf"b = {geo_pe['b']:.3f}\ R_\odot \quad b/r_1 = {geo_pe['b']/r1:.3f}"))
-        lines.append(("Primary Minimum Inclination for Eclipse",
-                       rf"{geo_pe['i_min']:.3f}^\circ < i < {180-geo_pe['i_min']:.3f}^\circ"))
-        lines.append(("Primary Minimum Grazing Eclipse Inclination",
-                       rf"{geo_pe['i_grazing']:.3f}^\circ < i < {180-geo_pe['i_grazing']:.3f}^\circ"))
+        lines.append(f"Primary Transit Duration: {geo_pe['duration']/60:.3f} minutes")
+        lines.append(f"Primary Impact Parameter: {geo_pe['b']:.3f} R☉,    b/r₁ = {geo_pe['b']/r1:.3f}")
+        lines.append(f"Primary Minimum Inclination for Eclipse: {geo_pe['i_min']:.2f}° < i < {180-geo_pe['i_min']:.2f}°")
+        lines.append(f"Primary Minimum Grazing Eclipse Inclination: {geo_pe['i_grazing']:.2f}° < i < {180-geo_pe['i_grazing']:.2f}°")
     if geo_se:
-        lines.append(("Secondary Transit Duration", rf"{geo_se['duration']/60:.3f}\ \text{{minutes}}"))
-        lines.append(("Secondary Impact Parameter",
-                       rf"b = {geo_se['b']:.3f}\ R_\odot \quad b/r_1 = {geo_se['b']/r1:.3f}"))
-        lines.append(("Secondary Minimum Inclination for Eclipse",
-                       rf"{geo_se['i_min']:.3f}^\circ < i < {180-geo_se['i_min']:.3f}^\circ"))
-        lines.append(("Secondary Minimum Grazing Eclipse Inclination",
-                       rf"{geo_se['i_grazing']:.3f}^\circ < i < {180-geo_se['i_grazing']:.3f}^\circ"))
+        lines.append(f"Secondary Transit Duration: {geo_se['duration']/60:.3f} minutes")
+        lines.append(f"Secondary Impact Parameter: {geo_se['b']:.3f} R☉,    b/r₁ = {geo_se['b']/r1:.3f}")
+        lines.append(f"Secondary Minimum Inclination for Eclipse: {geo_se['i_min']:.2f}° < i < {180-geo_se['i_min']:.2f}°")
+        lines.append(f"Secondary Minimum Grazing Eclipse Inclination: {geo_se['i_grazing']:.2f}° < i < {180-geo_se['i_grazing']:.2f}°")
+    lines.append(f"Minimum Possible Orbital Period: {P_min/(24*60*60):.3f} <= P < {P/(24*60*60):.3f} days")
 
-    lines.append(("Minimum Possible Orbital Period",
-                   rf"{P_min/(24*60*60):.3f}\ \text{{days}} \le P < {P/(24*60*60):.3f}\ \text{{days}}"))
-
-    return lines
+    return "\n".join(lines)
 
 
 # ====================================================
@@ -474,15 +454,15 @@ with st.sidebar:
     target = st.text_input("Target Name", "Algol AB (Beta Persei)")
 
     st.subheader("Primary Star (Star 1)")
-    m1 = st.number_input("Mass m₁ (M☉)", 0.001, 300.000, 3.17, 0.001, format="%.3f", key="m1")
-    r1 = st.number_input("Radius r₁ (R☉)", 0.001, 300.000, 2.73, 0.001, format="%.3f", key="r1")
-    L1 = st.number_input("Luminosity L₁ (L☉)", 0.001, 1_000_000.0, 182.0, 0.001, format="%.3f", key="L1")
+    m1 = st.number_input("Mass m₁ (M☉)", 0.001, 300.000, 3.17, 0.001, key="m1")
+    r1 = st.number_input("Radius r₁ (R☉)", 0.001, 300.000, 2.73, 0.001, key="r1")
+    L1 = st.number_input("Luminosity L₁ (L☉)", 0.0001, 1_000_000.0, 182.0, 0.001, key="L1")
     primary_color = st.color_picker("Color 1", "#00BFFF", key="c1")
 
     st.subheader("Secondary Star (Star 2)")
-    m2 = st.number_input("Mass m₂ (M☉)", 0.001, 200.000, 0.7, 0.001, format="%.3f", key="m2")
-    r2 = st.number_input("Radius r₂ (R☉)", 0.001, 200.000, 3.48, 0.001, format="%.3f", key="r2")
-    L2 = st.number_input("Luminosity L₂ (L☉)", 0.001, 1_000_000.0, 6.92, 0.001, format="%.3f", key="L2")
+    m2 = st.number_input("Mass m₂ (M☉)", 0.001, 200.000, 0.7, 0.001, key="m2")
+    r2 = st.number_input("Radius r₂ (R☉)", 0.001, 200.000, 3.48, 0.001, key="r2")
+    L2 = st.number_input("Luminosity L₂ (L☉)", 0.0001, 1_000_000.0, 6.92, 0.001, key="L2")
     secondary_color = st.color_picker("Color 2", "#FFA500", key="c2")
 
     st.subheader("Orbital Elements")
@@ -492,15 +472,15 @@ with st.sidebar:
     )
     orbit_input = "P" if orbit_choice == "Period (P)" else "a"
     if orbit_input == "P":
-        P_days_in = st.number_input("Period P (days)", 0.001, 100_000.0, 2.867, 0.001, format="%.3f", key="P_days")
-        a_AU_in = 0.062  # unused placeholder
+        P_days_in = st.number_input("Period P (days)", 0.001, 100_000.0, 2.867328, 0.000001, format="%.6f", key="P_days")
+        a_AU_in = 0.062043  # unused placeholder
     else:
-        a_AU_in = st.number_input("Semi-Major Axis a (AU)", 0.001, 1000.0, 0.062, 0.001, format="%.3f", key="a_AU")
-        P_days_in = 2.867  # unused placeholder
+        a_AU_in = st.number_input("Semi-Major Axis a (AU)", 0.0001, 1000.0, 0.062043, 0.000001, format="%.6f", key="a_AU")
+        P_days_in = 2.867328  # unused placeholder
 
-    i_deg = st.number_input("Inclination i (deg)", 0.0, 180.0, 98.7, 0.001, format="%.3f", key="i_deg")
-    e = st.number_input("Eccentricity e", 0.0, 0.99, 0.0, 0.001, format="%.3f", key="e")
-    omega_deg = st.number_input("Argument of Periastron ω (deg)", 0.0, 360.0, 0.0, 0.001, format="%.3f", key="omega_deg")
+    i_deg = st.number_input("Inclination i (deg)", 0.0, 180.0, 98.7, 0.001, key="i_deg")
+    e = st.number_input("Eccentricity e", 0.0, 0.99, 0.0, 0.001, key="e")
+    omega_deg = st.number_input("Argument of Periastron ω (deg)", 0.0, 360.0, 0.0, 0.001, key="omega_deg")
 
     st.subheader("Simulation Settings")
     n_samples = st.select_slider(
@@ -545,9 +525,7 @@ st.download_button(
 )
 
 st.subheader("Diagnostics")
-for label, tex in build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
-    st.markdown(f"**{label}**")
-    st.latex(tex)
+st.markdown(build_diagnostics_text(res, m1, m2, r1, e, omega_deg), language=None)
 
 with st.expander("About this simulator"):
     st.markdown(
