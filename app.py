@@ -16,8 +16,11 @@ Major Assumptions (unchanged from the original script):
 """
 
 import io
+import os
+import tempfile
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from matplotlib.patches import Circle
 from matplotlib.lines import Line2D
 import streamlit as st
@@ -372,7 +375,8 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
             rf"m₁ = {m1} $M_\odot$, r₁ = {r1} $R_\odot$, L₁ = {L1} $L_\odot$,    "
             rf"m₂ = {m2} $M_\odot$, r₂ = {r2} $R_\odot$, L₂ = {L2} $L_\odot$" + "\n"
             f"P = {P/(24*60**2):.3f} d, a = {res['sma']/AU:.4f} AU, e = {e:.3f}, ω = {omega_deg:.1f}°, i = {i_deg}°\n"
-            + (f"Eclipse Duration: {pe['duration']/60:.2f} min, b = {pe['d_min']/r1:.3f}   " if pe or se else "No Eclipse Occurs   ")
+            + (f"Primary Eclipse: dur {pe['duration']/60:.2f} min, b = {pe['d_min']/r1:.3f}   " if pe else "No Primary Eclipse   ")
+            + (f"Secondary Eclipse: dur {se['duration']/60:.2f} min, b = {se['d_min']/r1:.3f}" if se else "No Secondary Eclipse")
         )
 
     ax_top.set_xlabel("Phase")
@@ -395,7 +399,7 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         ax.set_ylim([-lim, lim])
         ax.set_xlabel(r"Solar Radii $R_\odot$")
         ax.set_ylabel(r"Solar Radii $R_\odot$")
-        ax.set_title(rf"{title}" + "\n" + rf"t = {t_val/P:.4f}" + "\n" + rf"L = {L_t:.2f} $L_\odot$")
+        ax.set_title(rf"{title}" + "\n" + rf"t = {t_val/P:.3f}" + "\n" + rf"L = {L_t:.2f} $L_\odot$")
 
         ax.plot(orbit_x, orbit_y, color='black', lw=1, zorder=1)
         star1 = Circle((0, 0), r1, color=primary_color, label='m1', zorder=(2 if z_t >= 0 else 3))
@@ -410,6 +414,108 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         loc="lower center", bbox_to_anchor=(-1.5, -0.35), ncol=3
     )
     return fig
+
+
+@st.cache_data(show_spinner="Rendering orbit animation (this can take a moment)...")
+def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
+                     primary_color, secondary_color, m1, L1, m2, L2,
+                     n_frames_per_period=60, fps=20):
+    """Animated companion to build_figure(): a moving orbit view next to a
+    scrolling light-curve marker. Reuses the same physics functions and the
+    already-solved `res` from simulate(), just re-evaluated on a coarser,
+    evenly-spaced set of frame timestamps."""
+    P, a_Rsol, om, inc, w = res['P'], res['a_Rsol'], res['om'], res['inc'], res['w']
+    A1, A2, L_total = res['A1'], res['A2'], res['L_total']
+    t_arr, L_arr = res['t_arr'], res['L_arr']
+    pe_segs, se_segs = res['pe_segs'], res['se_segs']
+
+    n_frames = int(n_frames_per_period * n_periods)
+    t_frames = np.linspace(0, n_periods * P, n_frames, endpoint=False)
+    x_f, y_f, z_f, d_f, r_f, nu_f = orbit_state(t_frames, w, e, a_Rsol, om, inc)
+    L_f = flux(d_f, z_f, r1, r2, L1, L2, A1, A2, L_total)
+
+    fig, (ax_orbit, ax_lc) = plt.subplots(1, 2, figsize=(13, 6))
+    fig.suptitle(
+        f"{target}\n"
+        rf"m₁ = {m1} $M_\odot$, r₁ = {r1} $R_\odot$, L₁ = {L1} $L_\odot$,    "
+        rf"m₂ = {m2} $M_\odot$, r₂ = {r2} $R_\odot$, L₂ = {L2} $L_\odot$" + "\n"
+        f"P = {P/(24*60**2):.3f} d, a = {res['sma']/AU:.4f} AU, e = {e:.3f}, ω = {omega_deg:.3f}°, i = {i_deg}°"
+    )
+    fig.subplots_adjust(top=0.8, wspace=0.3)
+
+    lim = 1.5 * a_Rsol * (1 + e)
+    ax_orbit.set_xlim(-lim, lim)
+    ax_orbit.set_ylim(-lim, lim)
+    ax_orbit.set_aspect('equal')
+    ax_orbit.set_xlabel(r"Solar Radii $R_\odot$")
+    ax_orbit.set_ylabel(r"Solar Radii $R_\odot$")
+    ax_orbit.grid(True, alpha=0.3)
+
+    nu_full = np.linspace(0, 2 * np.pi, 500)
+    r_full = a_Rsol * (1 - e**2) / (1 + e * np.cos(nu_full))
+    orbit_x = r_full * np.cos(om + nu_full)
+    orbit_y = r_full * np.sin(om + nu_full) * np.cos(inc)
+    ax_orbit.plot(orbit_x, orbit_y, color='black', lw=1, zorder=1)
+
+    star1_patch = Circle((0, 0), r1, color=primary_color, zorder=2)
+    star2_patch = Circle((x_f[0], y_f[0]), r2, color=secondary_color, zorder=3)
+    ax_orbit.add_patch(star1_patch)
+    ax_orbit.add_patch(star2_patch)
+    ax_orbit.legend(
+        handles=[Line2D([0], [0], marker='o', color='w', markerfacecolor=primary_color, markersize=10, label='m1'),
+                 Line2D([0], [0], marker='o', color='w', markerfacecolor=secondary_color, markersize=10, label='m2')],
+        loc='upper right'
+    )
+    time_text = ax_orbit.text(0.02, 0.02, '', transform=ax_orbit.transAxes)
+
+    for k in range(n_periods):
+        ax_lc.plot(t_arr / P + k, L_arr, color='black', lw=1)
+        for seg in pe_segs:
+            ax_lc.plot(t_arr[seg] / P + k, L_arr[seg], color='red', lw=1.2)
+        for seg in se_segs:
+            ax_lc.plot(t_arr[seg] / P + k, L_arr[seg], color='blue', lw=1.2)
+    ax_lc.set_xlim(0, n_periods)
+    y_pad = 0.05 * L_total
+    ax_lc.set_ylim(min(L_arr.min(), L_total) - y_pad, L_total + y_pad)
+    ax_lc.set_xlabel("Phase")
+    ax_lc.set_ylabel("Solar Luminosities")
+    ax_lc.grid(True, alpha=0.3)
+
+    marker, = ax_lc.plot([], [], 'o', color='red', ms=8, zorder=3)
+    vline = ax_lc.axvline(0, color='gray', lw=1, ls='--')
+
+    def update(frame):
+        x_t, y_t, z_t, L_t = x_f[frame], y_f[frame], z_f[frame], L_f[frame]
+        phase = t_frames[frame] / P
+        star2_patch.center = (x_t, y_t)
+        star1_patch.set_zorder(2 if z_t >= 0 else 3)
+        star2_patch.set_zorder(3 if z_t >= 0 else 2)
+        marker.set_data([phase], [L_t])
+        vline.set_xdata([phase, phase])
+        time_text.set_text(f"phase = {phase:.3f}\nL = {L_t:.3f} $L_\\odot$")
+        return star1_patch, star2_patch, marker, vline, time_text
+
+    ani = animation.FuncAnimation(fig, update, frames=n_frames, interval=1000 / fps, blit=False)
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        if animation.writers.is_available('ffmpeg'):
+            path = os.path.join(tmp_dir, "anim.mp4")
+            ani.save(path, writer='ffmpeg', fps=fps)
+            mime, ext = "video/mp4", "mp4"
+        else:
+            path = os.path.join(tmp_dir, "anim.gif")
+            ani.save(path, writer='pillow', fps=fps)
+            mime, ext = "image/gif", "gif"
+        with open(path, "rb") as fh:
+            video_bytes = fh.read()
+    finally:
+        plt.close(fig)
+        for fname in os.listdir(tmp_dir):
+            os.remove(os.path.join(tmp_dir, fname))
+        os.rmdir(tmp_dir)
+
+    return video_bytes, mime, ext
 
 
 def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
@@ -541,6 +647,22 @@ st.download_button(
     data=png_buf,
     file_name=download_name,
     mime="image/png",
+)
+
+video_bytes, video_mime, video_ext = build_animation(
+    res, r1, r2, i_deg, e, omega_deg, n_periods, target,
+    primary_color, secondary_color, m1, L1, m2, L2
+)
+if video_ext == "mp4":
+    st.video(video_bytes)
+else:
+    st.image(video_bytes)  # ffmpeg unavailable -- animated GIF fallback
+
+st.download_button(
+    label=f"Download orbit animation ({video_ext.upper()})",
+    data=video_bytes,
+    file_name=f"{target}_{(res['P']/86400):.3f}d_{res['sma']/AU:.3f}AU_{e:.3f}.{video_ext}",
+    mime=video_mime,
 )
 
 st.subheader("Diagnostics")
