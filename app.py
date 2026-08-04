@@ -383,9 +383,8 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
             f"{target}\n"
             rf"m₁ = {m1} $M_\odot$, r₁ = {r1} $R_\odot$, L₁ = {L1} $L_\odot$,    "
             rf"m₂ = {m2} $M_\odot$, r₂ = {r2} $R_\odot$, L₂ = {L2} $L_\odot$" + "\n"
-            f"P = {P/(24*60**2):.3f} d, a = {res['sma']/AU:.4f} AU, e = {e:.3f}, ω = {omega_deg:.1f}°, i = {i_deg}°\n"
-            + (f"Primary Eclipse: dur {pe['duration']/60:.2f} min, b = {pe['d_min']/r1:.3f}   " if pe else "No Primary Eclipse   ")
-            + (f"Secondary Eclipse: dur {se['duration']/60:.2f} min, b = {se['d_min']/r1:.3f}" if se else "No Secondary Eclipse")
+            f"P = {P/(24*60**2):.4f} d, a = {res['sma']/AU:.4f} AU, e = {e:.4f}, ω = {omega_deg:.4f}°, i = {i_deg:.4f}°\n"
+            + (f"Eclipse Duration: {pe['duration']/60:.4f} min, b = {pe['d_min']/r1:.4f}   " if pe or se else "No Eclipse Occurs   ")
         )
 
     ax_top.set_xlabel("Phase")
@@ -408,7 +407,7 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         ax.set_ylim([-lim, lim])
         ax.set_xlabel(r"Solar Radii $R_\odot$")
         ax.set_ylabel(r"Solar Radii $R_\odot$")
-        ax.set_title(rf"{title}" + "\n" + rf"t = {t_val/P:.3f}" + "\n" + rf"L = {L_t:.2f} $L_\odot$")
+        ax.set_title(rf"{title}" + "\n" + rf"t = {t_val/P:.4f}" + "\n" + rf"L = {L_t:.4f} $L_\odot$")
 
         ax.plot(orbit_x, orbit_y, color='black', lw=1, zorder=1)
         star1 = Circle((0, 0), r1, color=primary_color, label='m1', zorder=(2 if z_t >= 0 else 3))
@@ -464,8 +463,8 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         f"{target}\n"
         rf"m₁ = {m1} $M_\odot$, r₁ = {r1} $R_\odot$, L₁ = {L1} $L_\odot$,    "
         rf"m₂ = {m2} $M_\odot$, r₂ = {r2} $R_\odot$, L₂ = {L2} $L_\odot$" + "\n"
-        f"P = {P/(24*60**2):.3f} d, a = {res['sma']/AU:.4f} AU, e = {e:.4f}, "
-        f"ω = {omega_deg:.4f}°, i = {i_deg}°\n"
+        f"P = {P/(24*60**2):.4f} d, a = {res['sma']/AU:.4f} AU, e = {e:.4f}, "
+        f"ω = {omega_deg:.4f}°, i = {i_deg:.4f}°\n"
     )
     if pe is not None or se is not None:
         parts = []
