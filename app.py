@@ -502,28 +502,35 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         vline.set_xdata([phase, phase])
         time_text.set_text(f"phase = {phase:.3f}\nL = {L_t:.3f} $L_\\odot$")
 
-    # Render frame-by-frame and encode directly with imageio's bundled ffmpeg
-    # binary (via the imageio-ffmpeg package). This always produces a real
-    # .mp4 and does NOT depend on a system-level ffmpeg install being on PATH.
+    # Render frame-by-frame once, then encode two outputs from the same frames:
+    # an .mp4 (via imageio's bundled ffmpeg binary -- no system dependency) for
+    # the download button, and a .gif for inline display (st.video doesn't
+    # reliably autoplay/loop everywhere the way an inline gif does).
     tmp_dir = tempfile.mkdtemp()
-    path = os.path.join(tmp_dir, "anim.mp4")
+    mp4_path = os.path.join(tmp_dir, "anim.mp4")
     try:
-        writer = imageio.get_writer(path, fps=fps, codec='libx264', quality=8)
+        frames = []
+        writer = imageio.get_writer(mp4_path, fps=fps, codec='libx264', quality=8)
         for frame in range(n_frames):
             update(frame)
             fig.canvas.draw()
-            rgb = np.asarray(fig.canvas.buffer_rgba())[..., :3]
+            rgb = np.array(fig.canvas.buffer_rgba())[..., :3]  # np.array() copies; np.asarray() would alias the renderer's buffer
+            frames.append(rgb)
             writer.append_data(rgb)
         writer.close()
-        with open(path, "rb") as fh:
+        with open(mp4_path, "rb") as fh:
             video_bytes = fh.read()
+
+        gif_buf = io.BytesIO()
+        imageio.mimsave(gif_buf, frames, format="GIF", fps=fps, loop=0)
+        gif_bytes = gif_buf.getvalue()
     finally:
         plt.close(fig)
         for fname in os.listdir(tmp_dir):
             os.remove(os.path.join(tmp_dir, fname))
         os.rmdir(tmp_dir)
 
-    return video_bytes, "video/mp4", "mp4"
+    return video_bytes, "video/mp4", "mp4", gif_bytes
 
 
 def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
@@ -657,11 +664,11 @@ st.download_button(
     mime="image/png",
 )
 
-video_bytes, video_mime, video_ext = build_animation(
+video_bytes, video_mime, video_ext, gif_bytes = build_animation(
     res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     primary_color, secondary_color, m1, L1, m2, L2
 )
-st.video(video_bytes)
+st.image(gif_bytes)
 
 st.download_button(
     label=f"Download orbit animation ({video_ext.upper()})",
