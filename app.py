@@ -428,14 +428,22 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
 @st.cache_data(show_spinner="Rendering orbit animation (this can take a moment)...")
 def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
                      primary_color, secondary_color, m1, L1, m2, L2,
-                     n_frames_per_period=60, fps=20):
-    """Animated companion to build_figure(): a moving orbit view next to a
-    scrolling light-curve marker. Reuses the same physics functions and the
-    already-solved `res` from simulate(), just re-evaluated on a coarser,
-    evenly-spaced set of frame timestamps."""
+                     n_frames_per_period=200, fps=30):
+    """Port of LC_v5_animation.py: side-by-side orbit + light-curve animation,
+    saved as mp4 (and a gif for inline preview). Uses the same absolute Keplerian
+    phase convention as that script (not the eclipse-reanchored phase of the
+    static figure). Defaults match LC_v5_animation: 200 frames/period @ 30 fps."""
     P, a_Rsol, om, inc, w = res['P'], res['a_Rsol'], res['om'], res['inc'], res['w']
     A1, A2, L_total = res['A1'], res['A2'], res['L_total']
-    t_arr, L_arr = res['t_arr'], res['L_arr']
+    pe, se = res['pe'], res['se']
+
+    # Background light-curve trace (absolute Keplerian phase, like LC_v5_animation).
+    # Cap samples so Streamlit stays responsive; the static figure already has the
+    # high-resolution scan from simulate().
+    n_bg = min(max(len(res['t_arr']), 10_000), 200_000)
+    t_bg = np.linspace(0, n_periods * P, n_bg * n_periods)
+    _x, _y, z_bg, d_bg, _r, _nu = orbit_state(t_bg, w, e, a_Rsol, om, inc)
+    L_bg = flux(d_bg, z_bg, r1, r2, L1, L2, A1, A2, L_total)
 
     n_frames = int(n_frames_per_period * n_periods)
     t_frames = np.linspace(0, n_periods * P, n_frames, endpoint=False)
@@ -443,13 +451,28 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     L_f = flux(d_f, z_f, r1, r2, L1, L2, A1, A2, L_total)
 
     fig, (ax_orbit, ax_lc) = plt.subplots(1, 2, figsize=(13, 6))
-    fig.suptitle(
+
+    title_str = (
         f"{target}\n"
         rf"m₁ = {m1} $M_\odot$, r₁ = {r1} $R_\odot$, L₁ = {L1} $L_\odot$,    "
         rf"m₂ = {m2} $M_\odot$, r₂ = {r2} $R_\odot$, L₂ = {L2} $L_\odot$" + "\n"
-        f"P = {P/(24*60**2):.3f} d, a = {res['sma']/AU:.4f} AU, e = {e:.3f}, ω = {omega_deg:.3f}°, i = {i_deg}°"
+        f"P = {P/(24*60**2):.3f} d, a = {res['sma']/AU:.4f} AU, e = {e:.4f}, "
+        f"ω = {omega_deg:.4f}°, i = {i_deg}°\n"
     )
-    fig.subplots_adjust(top=0.8, wspace=0.3)
+    if pe is not None or se is not None:
+        parts = []
+        if pe is not None:
+            parts.append(rf"Primary Eclipse L$_{{min}}$ = {pe['L_min']:.4f} $L_\odot$")
+        if se is not None:
+            parts.append(rf"Secondary Eclipse L$_{{min}}$ = {se['L_min']:.4f} $L_\odot$")
+        title_str += "    ".join(parts) + "\n"
+        if pe is not None:
+            title_str += rf"Eclipse Duration = {pe['duration']/60:.4f} min, b = {pe['d_min']/r1:.4f}"
+    else:
+        title_str += "No Eclipse Occurs"
+
+    fig.suptitle(title_str)
+    fig.subplots_adjust(top=0.75, wspace=0.3)
 
     lim = 1.5 * a_Rsol * (1 + e)
     ax_orbit.set_xlim(-lim, lim)
@@ -476,11 +499,10 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     )
     time_text = ax_orbit.text(0.02, 0.02, '', transform=ax_orbit.transAxes)
 
-    for k in range(n_periods):
-        ax_lc.plot(t_arr / P + k, L_arr, color='black', lw=1)
+    ax_lc.plot(t_bg / P, L_bg, color='black', lw=1)
     ax_lc.set_xlim(0, n_periods)
     y_pad = 0.05 * L_total
-    ax_lc.set_ylim(min(L_arr.min(), L_total) - y_pad, L_total + y_pad)
+    ax_lc.set_ylim(min(L_bg) - y_pad, L_total + y_pad)
     ax_lc.set_xlabel("Phase")
     ax_lc.set_ylabel("Solar Luminosities")
     ax_lc.grid(True, alpha=0.3)
@@ -492,8 +514,9 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         x_t, y_t, z_t, L_t = x_f[frame], y_f[frame], z_f[frame], L_f[frame]
         phase = t_frames[frame] / P
         star2_patch.center = (x_t, y_t)
-        star1_patch.set_zorder(2 if z_t >= 0 else 3)
-        star2_patch.set_zorder(3 if z_t >= 0 else 2)
+        # whichever star is nearer the observer (z >= 0) draws on top -- same as LC_v5_animation
+        star1_patch.set_zorder(2 if z_t >= 0 else 4)
+        star2_patch.set_zorder(4 if z_t >= 0 else 2)
         marker.set_data([phase], [L_t])
         vline.set_xdata([phase, phase])
         time_text.set_text(f"phase = {phase:.3f}\nL = {L_t:.3f} $L_\\odot$")
@@ -534,7 +557,7 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
             os.remove(os.path.join(tmp_dir, fname))
         os.rmdir(tmp_dir)
 
-    return video_bytes, "video/mp4", "mp4", gif_bytes
+    return video_bytes, "video/mp4", "mp4", gif_bytes, n_frames_per_period, fps
 
 
 def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
@@ -634,6 +657,12 @@ with st.sidebar:
     )
     n_periods = st.number_input("Periods to display", 1, 10, 1, key="n_periods")
 
+    st.subheader("Animation Settings")
+    n_frames_per_period = st.number_input(
+        "Frames per period", 10, 1000, 200, 10, key="n_frames_per_period"
+    )
+    fps = st.number_input("FPS", 1, 60, 30, 1, key="fps")
+
 
 # ====================================================
 # Run + Render
@@ -668,16 +697,22 @@ st.download_button(
     mime="image/png",
 )
 
-video_bytes, video_mime, video_ext, gif_bytes = build_animation(
+video_bytes, video_mime, video_ext, gif_bytes, n_frames_anim, fps_anim = build_animation(
     res, r1, r2, i_deg, e, omega_deg, n_periods, target,
-    primary_color, secondary_color, m1, L1, m2, L2
+    primary_color, secondary_color, m1, L1, m2, L2,
+    n_frames_per_period=int(n_frames_per_period), fps=int(fps),
 )
 st.image(gif_bytes)
 
+# Filename matches LC_v5_animation.py's OUTPUT_FILE convention.
+anim_download_name = (
+    f"{target}_{(res['P']/86400):.3f}d_{res['sma']/AU:.3f}AU_"
+    f"{n_frames_anim}_{e}_{n_frames_anim}frames_{fps_anim}.{video_ext}"
+)
 st.download_button(
     label=f"Download orbit animation ({video_ext.upper()})",
     data=video_bytes,
-    file_name=f"{target}_{(res['P']/86400):.3f}d_{res['sma']/AU:.3f}AU_{e:.3f}.{video_ext}",
+    file_name=anim_download_name,
     mime=video_mime,
 )
 
