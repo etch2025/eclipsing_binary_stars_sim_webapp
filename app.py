@@ -436,7 +436,6 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     P, a_Rsol, om, inc, w = res['P'], res['a_Rsol'], res['om'], res['inc'], res['w']
     A1, A2, L_total = res['A1'], res['A2'], res['L_total']
     t_arr, L_arr = res['t_arr'], res['L_arr']
-    pe_segs, se_segs = res['pe_segs'], res['se_segs']
 
     n_frames = int(n_frames_per_period * n_periods)
     t_frames = np.linspace(0, n_periods * P, n_frames, endpoint=False)
@@ -479,10 +478,6 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
 
     for k in range(n_periods):
         ax_lc.plot(t_arr / P + k, L_arr, color='black', lw=1)
-        for seg in pe_segs:
-            ax_lc.plot(t_arr[seg] / P + k, L_arr[seg], color='red', lw=1.2)
-        for seg in se_segs:
-            ax_lc.plot(t_arr[seg] / P + k, L_arr[seg], color='blue', lw=1.2)
     ax_lc.set_xlim(0, n_periods)
     y_pad = 0.05 * L_total
     ax_lc.set_ylim(min(L_arr.min(), L_total) - y_pad, L_total + y_pad)
