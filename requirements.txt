@@ -1,3 +1,5 @@
 streamlit
 numpy
 matplotlib
+imageio
+imageio-ffmpeg
