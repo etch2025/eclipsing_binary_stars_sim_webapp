@@ -20,6 +20,7 @@ import os
 import tempfile
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.patches import Circle
 from matplotlib.lines import Line2D
 import imageio.v2 as imageio
@@ -506,6 +507,14 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     # an .mp4 (via imageio's bundled ffmpeg binary -- no system dependency) for
     # the download button, and a .gif for inline display (st.video doesn't
     # reliably autoplay/loop everywhere the way an inline gif does).
+    #
+    # fig.canvas isn't guaranteed to be an Agg canvas (it depends on whatever
+    # backend Matplotlib picked for this environment), and buffer_rgba() is an
+    # Agg-only method. savefig() sidesteps this by spinning up its own Agg
+    # renderer internally regardless of the active backend -- do the same here
+    # by attaching an explicit FigureCanvasAgg instead of using fig.canvas directly.
+    agg_canvas = FigureCanvasAgg(fig)
+
     tmp_dir = tempfile.mkdtemp()
     mp4_path = os.path.join(tmp_dir, "anim.mp4")
     try:
@@ -513,8 +522,8 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         writer = imageio.get_writer(mp4_path, fps=fps, codec='libx264', quality=8)
         for frame in range(n_frames):
             update(frame)
-            fig.canvas.draw()
-            rgb = np.array(fig.canvas.buffer_rgba())[..., :3]  # np.array() copies; np.asarray() would alias the renderer's buffer
+            agg_canvas.draw()
+            rgb = np.array(agg_canvas.buffer_rgba())[..., :3]  # np.array() copies; np.asarray() would alias the renderer's buffer
             frames.append(rgb)
             writer.append_data(rgb)
         writer.close()
