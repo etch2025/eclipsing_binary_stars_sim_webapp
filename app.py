@@ -303,10 +303,25 @@ def simulate(m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, 
     geo_pe = eclipse_geometry(r_c_pe, nu_c_pe)
     geo_se = eclipse_geometry(r_c_se, nu_c_se)
 
-    # Smallest a (at this e) with periastron >= r1+r2; matching P_min via Kepler III
+    # Minimum possible orbital separation / period: smallest a (at this e) keeping
+    # periastron >= r1+r2, i.e. a_min = (r1+r2)/(1-e) -- matches LC_v5.py.
     a_min_Rsol = Rsum / (1 - e)
     a_min = a_min_Rsol * R_Sol  # meters
     P_min = np.sqrt((a_min / AU)**3 / (m1 + m2)) * YR
+
+    # Maximum possible sma for an eclipse at this inclination: |b| = r_c |cos i| < r1+r2
+    # ⇒ r_c < (r1+r2)/|cos i|. Convert each conjunction's r_c limit back to a via
+    # r_c = a (1-e²)/(1+e cos ν_c). Take the larger of the two (at least one eclipse).
+    cos_i_abs = abs(np.cos(inc))
+    if cos_i_abs > 1e-15:
+        r_c_max = Rsum / cos_i_abs
+        a_max_pe = r_c_max * (1 + e * np.cos(nu_c_pe)) / (1 - e**2)
+        a_max_se = r_c_max * (1 + e * np.cos(nu_c_se)) / (1 - e**2)
+        a_max = max(a_max_pe, a_max_se) * R_Sol  # meters
+        P_max = np.sqrt((a_max / AU)**3 / (m1 + m2)) * YR
+    else:
+        a_max = np.inf
+        P_max = np.inf
 
     return {
         'P': P, 'sma': sma, 'a_Rsol': a_Rsol, 'w': w, 'om': om, 'inc': inc,
@@ -315,7 +330,7 @@ def simulate(m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, 
         'eclipses_occur': eclipses_occur, 'pe': pe, 'se': se,
         'pe_segs': pe_segs, 'se_segs': se_segs,
         'r_peri': r_peri, 'geo_pe': geo_pe, 'geo_se': geo_se,
-        'P_min': P_min, 'a_min': a_min,
+        'P_min': P_min, 'P_max': P_max, 'a_min': a_min, 'a_max': a_max,
         'A1': A1, 'A2': A2,
     }
 
@@ -601,53 +616,61 @@ def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
     P, sma, a_Rsol, r_peri = res['P'], res['sma'], res['a_Rsol'], res['r_peri']
     pe, se = res['pe'], res['se']
     geo_pe, geo_se = res['geo_pe'], res['geo_se']
-    P_min, a_min = res['P_min'], res['a_min']
+    P_min, P_max = res['P_min'], res['P_max']
+    a_min, a_max = res['a_min'], res['a_max']
 
     lines = []
-    lines.append(("Orbital Period", rf"P = {P/(24*60*60):.3f}\ \text{{days}}"))
-    lines.append(("Semi-major Axis", rf"a = {sma/AU:.3f}\ \text{{AU}} \quad "
-                                      rf"(\text{{periastron: }} {r_peri:.3f}\ R_\odot,\ "
-                                      rf"\text{{apastron: }} {a_Rsol*(1+e):.3f}\ R_\odot)"))
+    lines.append(("Orbital Period", rf"P = {P/(24*60*60):.4f}\ \text{{days}}"))
+    lines.append(("Semi-major Axis", rf"a = {sma/AU:.4f}\ \text{{AU}} \quad "
+                                      rf"(\text{{periastron: }} {r_peri:.4f}\ R_\odot,\ "
+                                      rf"\text{{apastron: }} {a_Rsol*(1+e):.4f}\ R_\odot)"))
     lines.append(("Eccentricity & Argument of Periastron",
-                   rf"e = {e:.3f} \qquad \omega = {omega_deg:.3f}^\circ"))
+                   rf"e = {e:.4f} \qquad \omega = {omega_deg:.4f}^\circ"))
 
     if res['eclipses_occur']:
         if pe:
             lines.append(("Primary Eclipse",
-                           rf"\text{{duration}} = {pe['duration']/60:.3f}\ \text{{min}}, \quad "
-                           rf"d_{{\min}} = {pe['d_min']:.3f}\ R_\odot, \quad "
-                           rf"L_{{\min}} = {pe['L_min']:.3f}\ L_\odot"))
+                           rf"\text{{duration}} = {pe['duration']/60:.4f}\ \text{{min}}, \quad "
+                           rf"d_{{\min}} = {pe['d_min']:.4f}\ R_\odot, \quad "
+                           rf"L_{{\min}} = {pe['L_min']:.4f}\ L_\odot"))
         if se:
             lines.append(("Secondary Eclipse",
-                           rf"\text{{duration}} = {se['duration']/60:.3f}\ \text{{min}}, \quad "
-                           rf"d_{{\min}} = {se['d_min']:.3f}\ R_\odot, \quad "
-                           rf"L_{{\min}} = {se['L_min']:.3f}\ L_\odot"))
+                           rf"\text{{duration}} = {se['duration']/60:.4f}\ \text{{min}}, \quad "
+                           rf"d_{{\min}} = {se['d_min']:.4f}\ R_\odot, \quad "
+                           rf"L_{{\min}} = {se['L_min']:.4f}\ L_\odot"))
     else:
         lines.append(("Eclipses", r"\text{No eclipses occur for this geometry.}"))
 
     # Geometric bounds always print (even with no eclipse), matching LC_v5.py
     if geo_pe:
-        lines.append(("Primary Transit Duration", rf"{geo_pe['duration']/60:.3f}\ \text{{minutes}}"))
+        lines.append(("Primary Transit Duration", rf"{geo_pe['duration']/60:.4f}\ \text{{minutes}}"))
         lines.append(("Primary Impact Parameter",
-                       rf"b = {geo_pe['b']:.3f}\ R_\odot \quad b/r_1 = {geo_pe['b']/r1:.3f}"))
+                       rf"b = {geo_pe['b']:.4f}\ R_\odot \quad b/r_1 = {geo_pe['b']/r1:.4f}"))
         lines.append(("Primary Minimum Inclination for Eclipse",
-                       rf"{geo_pe['i_min']:.3f}^\circ < i < {180-geo_pe['i_min']:.3f}^\circ"))
+                       rf"[{geo_pe['i_min']:.4f}^\circ, {180-geo_pe['i_min']:.4f}^\circ]"))
         lines.append(("Primary Minimum Grazing Eclipse Inclination",
-                       rf"{geo_pe['i_grazing']:.3f}^\circ < i < {180-geo_pe['i_grazing']:.3f}^\circ"))
+                       rf"[{geo_pe['i_grazing']:.4f}^\circ, {180-geo_pe['i_grazing']:.4f}^\circ]"))
     if geo_se:
-        lines.append(("Secondary Transit Duration", rf"{geo_se['duration']/60:.3f}\ \text{{minutes}}"))
+        lines.append(("Secondary Transit Duration", rf"{geo_se['duration']/60:.4f}\ \text{{minutes}}"))
         lines.append(("Secondary Impact Parameter",
-                       rf"b = {geo_se['b']:.3f}\ R_\odot \quad b/r_1 = {geo_se['b']/r1:.3f}"))
+                       rf"b = {geo_se['b']:.4f}\ R_\odot \quad b/r_1 = {geo_se['b']/r1:.4f}"))
         lines.append(("Secondary Minimum Inclination for Eclipse",
-                       rf"{geo_se['i_min']:.3f}^\circ < i < {180-geo_se['i_min']:.3f}^\circ"))
+                       rf"[{geo_se['i_min']:.4f}^\circ, {180-geo_se['i_min']:.4f}^\circ]"))
         lines.append(("Secondary Minimum Grazing Eclipse Inclination",
-                       rf"{geo_se['i_grazing']:.3f}^\circ < i < {180-geo_se['i_grazing']:.3f}^\circ"))
+                       rf"[{geo_se['i_grazing']:.4f}^\circ, {180-geo_se['i_grazing']:.4f}^\circ]"))
 
-    lines.append(("Minimum Possible Orbital Period",
-                   rf"{P_min/(24*60*60):.3f}\ \text{{days}} \le P < {P/(24*60*60):.3f}\ \text{{days}}"))
-    lines.append(("Minimum Possible Semi-Major Axis",
-                   rf"{a_min/AU:.4f}\ \text{{AU}} \le a < {sma/AU:.4f}\ \text{{AU}} "
-                   rf"\quad ({a_min/R_Sol:.3f}\ R_\odot \le a < {a_Rsol:.3f}\ R_\odot)"))
+    # [a_min, a_max): min orbital separation → max sma that still allows an eclipse at this i
+    if np.isfinite(a_max):
+        lines.append(("Possible Semi-Major Axis for Eclipse",
+                       rf"{a_min/AU:.4f}\ \text{{AU}} \le a < {a_max/AU:.4f}\ \text{{AU}}"))
+        lines.append(("Possible Orbital Period for Eclipse",
+                       rf"{P_min/(24*60*60):.4f}\ \text{{days}} \le P < {P_max/(24*60*60):.4f}\ \text{{days}}"))
+    else:
+        lines.append(("Possible Semi-Major Axis for Eclipse",
+                       rf"{a_min/AU:.4f}\ \text{{AU}} \le a < \infty\ \text{{AU}} \quad (i \approx 90^\circ)"))
+        lines.append(("Possible Orbital Period for Eclipse",
+                       rf"{P_min/(24*60*60):.4f}\ \text{{days}} \le P < \infty\ \text{{days}} "
+                       rf"\quad (i \approx 90^\circ)"))
 
     return lines
 
