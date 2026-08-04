@@ -20,10 +20,18 @@ import os
 import tempfile
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from matplotlib.patches import Circle
 from matplotlib.lines import Line2D
+import imageio.v2 as imageio
 import streamlit as st
+import imageio_ffmpeg
+
+# matplotlib's ffmpeg writer normally relies on an `ffmpeg` binary already being
+# installed on the host system (e.g. via apt/packages.txt), which most Streamlit
+# deployments don't have out of the box. imageio-ffmpeg ships a static ffmpeg
+# binary as a pip package, so pointing matplotlib at it makes mp4 export work
+# everywhere, with no system-level dependency.
+plt.rcParams['animation.ffmpeg_path'] = imageio_ffmpeg.get_ffmpeg_exe()
 
 # --------------------------------------------------
 # General Scientific Constants
@@ -493,20 +501,20 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         marker.set_data([phase], [L_t])
         vline.set_xdata([phase, phase])
         time_text.set_text(f"phase = {phase:.3f}\nL = {L_t:.3f} $L_\\odot$")
-        return star1_patch, star2_patch, marker, vline, time_text
 
-    ani = animation.FuncAnimation(fig, update, frames=n_frames, interval=1000 / fps, blit=False)
-
+    # Render frame-by-frame and encode directly with imageio's bundled ffmpeg
+    # binary (via the imageio-ffmpeg package). This always produces a real
+    # .mp4 and does NOT depend on a system-level ffmpeg install being on PATH.
     tmp_dir = tempfile.mkdtemp()
+    path = os.path.join(tmp_dir, "anim.mp4")
     try:
-        if animation.writers.is_available('ffmpeg'):
-            path = os.path.join(tmp_dir, "anim.mp4")
-            ani.save(path, writer='ffmpeg', fps=fps)
-            mime, ext = "video/mp4", "mp4"
-        else:
-            path = os.path.join(tmp_dir, "anim.gif")
-            ani.save(path, writer='pillow', fps=fps)
-            mime, ext = "image/gif", "gif"
+        writer = imageio.get_writer(path, fps=fps, codec='libx264', quality=8)
+        for frame in range(n_frames):
+            update(frame)
+            fig.canvas.draw()
+            rgb = np.asarray(fig.canvas.buffer_rgba())[..., :3]
+            writer.append_data(rgb)
+        writer.close()
         with open(path, "rb") as fh:
             video_bytes = fh.read()
     finally:
@@ -515,7 +523,7 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
             os.remove(os.path.join(tmp_dir, fname))
         os.rmdir(tmp_dir)
 
-    return video_bytes, mime, ext
+    return video_bytes, "video/mp4", "mp4"
 
 
 def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
@@ -653,10 +661,7 @@ video_bytes, video_mime, video_ext = build_animation(
     res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     primary_color, secondary_color, m1, L1, m2, L2
 )
-if video_ext == "mp4":
-    st.video(video_bytes)
-else:
-    st.image(video_bytes)  # ffmpeg unavailable -- animated GIF fallback
+st.video(video_bytes)
 
 st.download_button(
     label=f"Download orbit animation ({video_ext.upper()})",
