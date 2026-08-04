@@ -237,19 +237,26 @@ def simulate(m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, 
             'd_min': d_arr[mid_idx], 'duration': t_arr[seg[-1]] - t_arr[seg[0]],
         }
 
+    # True anomaly / separation at each conjunction -- needed for analytic
+    # eclipse-geometry diagnostics even when no eclipse occurs (matches LC_v5.py).
+    nu_c_zpos = np.radians(90.0 - omega_deg)
+    nu_c_zneg = np.radians(270.0 - omega_deg)
+    r_c_zpos = a_Rsol * (1 - e**2) / (1 + e * np.cos(nu_c_zpos))
+    r_c_zneg = a_Rsol * (1 - e**2) / (1 + e * np.cos(nu_c_zneg))
+
     pe = se = None
     pe_segs, se_segs = [], []
-    nu_c_pe = nu_c_se = r_c_pe = r_c_se = None
 
-    if eclipses_occur:
+    if not eclipses_occur:
+        # Keep geometric conjunction labeling so i_min / i_grazing / P_min / a_min still print
+        nu_c_pe, r_c_pe = nu_c_zpos, r_c_zpos
+        nu_c_se, r_c_se = nu_c_zneg, r_c_zneg
+    else:
         pe_z_pos = eclipse_info(primary_segs)
         se_z_neg = eclipse_info(secondary_segs)
 
-        nu_c_zpos = np.radians(90.0 - omega_deg)
-        nu_c_zneg = np.radians(270.0 - omega_deg)
-        r_c_zpos = a_Rsol * (1 - e**2) / (1 + e * np.cos(nu_c_zpos))
-        r_c_zneg = a_Rsol * (1 - e**2) / (1 + e * np.cos(nu_c_zneg))
-
+        # "Primary" = deeper eclipse. Always keep both conjunction geometries so
+        # diagnostics print for both even if only one eclipse is detected.
         if pe_z_pos and se_z_neg:
             if pe_z_pos['L_min'] <= se_z_neg['L_min']:
                 pe, pe_segs = pe_z_pos, primary_segs
@@ -264,9 +271,14 @@ def simulate(m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, 
         elif pe_z_pos:
             pe, pe_segs = pe_z_pos, primary_segs
             nu_c_pe, r_c_pe = nu_c_zpos, r_c_zpos
+            nu_c_se, r_c_se = nu_c_zneg, r_c_zneg
         elif se_z_neg:
             pe, pe_segs = se_z_neg, secondary_segs
             nu_c_pe, r_c_pe = nu_c_zneg, r_c_zneg
+            nu_c_se, r_c_se = nu_c_zpos, r_c_zpos
+        else:
+            nu_c_pe, r_c_pe = nu_c_zpos, r_c_zpos
+            nu_c_se, r_c_se = nu_c_zneg, r_c_zneg
 
     # --- Analytic eclipse-geometry metrics (generalized to e > 0) ---
     Rsum = r1 + r2
@@ -291,8 +303,10 @@ def simulate(m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, 
     geo_pe = eclipse_geometry(r_c_pe, nu_c_pe)
     geo_se = eclipse_geometry(r_c_se, nu_c_se)
 
+    # Smallest a (at this e) with periastron >= r1+r2; matching P_min via Kepler III
     a_min_Rsol = Rsum / (1 - e)
-    P_min = np.sqrt((a_min_Rsol * R_Sol / AU)**3 / (m1 + m2)) * YR
+    a_min = a_min_Rsol * R_Sol  # meters
+    P_min = np.sqrt((a_min / AU)**3 / (m1 + m2)) * YR
 
     return {
         'P': P, 'sma': sma, 'a_Rsol': a_Rsol, 'w': w, 'om': om, 'inc': inc,
@@ -300,7 +314,8 @@ def simulate(m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, 
         'd_arr': d_arr, 'r_arr': r_arr, 'L_arr': L_arr, 'L_total': L_total,
         'eclipses_occur': eclipses_occur, 'pe': pe, 'se': se,
         'pe_segs': pe_segs, 'se_segs': se_segs,
-        'r_peri': r_peri, 'geo_pe': geo_pe, 'geo_se': geo_se, 'P_min': P_min,
+        'r_peri': r_peri, 'geo_pe': geo_pe, 'geo_se': geo_se,
+        'P_min': P_min, 'a_min': a_min,
         'A1': A1, 'A2': A2,
     }
 
@@ -585,7 +600,8 @@ def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
     with st.latex so the numbers/units show up as typeset math rather than plain text."""
     P, sma, a_Rsol, r_peri = res['P'], res['sma'], res['a_Rsol'], res['r_peri']
     pe, se = res['pe'], res['se']
-    geo_pe, geo_se, P_min = res['geo_pe'], res['geo_se'], res['P_min']
+    geo_pe, geo_se = res['geo_pe'], res['geo_se']
+    P_min, a_min = res['P_min'], res['a_min']
 
     lines = []
     lines.append(("Orbital Period", rf"P = {P/(24*60*60):.3f}\ \text{{days}}"))
@@ -609,6 +625,7 @@ def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
     else:
         lines.append(("Eclipses", r"\text{No eclipses occur for this geometry.}"))
 
+    # Geometric bounds always print (even with no eclipse), matching LC_v5.py
     if geo_pe:
         lines.append(("Primary Transit Duration", rf"{geo_pe['duration']/60:.3f}\ \text{{minutes}}"))
         lines.append(("Primary Impact Parameter",
@@ -628,6 +645,9 @@ def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
 
     lines.append(("Minimum Possible Orbital Period",
                    rf"{P_min/(24*60*60):.3f}\ \text{{days}} \le P < {P/(24*60*60):.3f}\ \text{{days}}"))
+    lines.append(("Minimum Possible Semi-Major Axis",
+                   rf"{a_min/AU:.4f}\ \text{{AU}} \le a < {sma/AU:.4f}\ \text{{AU}} "
+                   rf"\quad ({a_min/R_Sol:.3f}\ R_\odot \le a < {a_Rsol:.3f}\ R_\odot)"))
 
     return lines
 
