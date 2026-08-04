@@ -425,17 +425,22 @@ def build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     return fig
 
 
-@st.cache_data(show_spinner="Rendering orbit animation (this can take a moment)...")
 def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
                      primary_color, secondary_color, m1, L1, m2, L2,
-                     n_frames_per_period=200, fps=30):
+                     n_frames_per_period=200, fps=30, progress=None):
     """Port of LC_v5_animation.py: side-by-side orbit + light-curve animation,
     saved as mp4 (and a gif for inline preview). Uses the same absolute Keplerian
     phase convention as that script (not the eclipse-reanchored phase of the
-    static figure). Defaults match LC_v5_animation: 200 frames/period @ 30 fps."""
+    static figure). Defaults match LC_v5_animation: 200 frames/period @ 30 fps.
+
+    `progress` is an optional st.progress handle updated during frame render / encode.
+    Caching is handled at the call site via st.session_state (so the bar can update)."""
     P, a_Rsol, om, inc, w = res['P'], res['a_Rsol'], res['om'], res['inc'], res['w']
     A1, A2, L_total = res['A1'], res['A2'], res['L_total']
     pe, se = res['pe'], res['se']
+
+    if progress is not None:
+        progress.progress(0.0, text="Computing animation orbit states...")
 
     # Background light-curve trace (absolute Keplerian phase, like LC_v5_animation).
     # Cap samples so Streamlit stays responsive; the static figure already has the
@@ -449,6 +454,9 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     t_frames = np.linspace(0, n_periods * P, n_frames, endpoint=False)
     x_f, y_f, z_f, d_f, r_f, nu_f = orbit_state(t_frames, w, e, a_Rsol, om, inc)
     L_f = flux(d_f, z_f, r1, r2, L1, L2, A1, A2, L_total)
+
+    if progress is not None:
+        progress.progress(0.05, text="Setting up animation figure...")
 
     fig, (ax_orbit, ax_lc) = plt.subplots(1, 2, figsize=(13, 6))
 
@@ -538,19 +546,32 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     try:
         frames = []
         writer = imageio.get_writer(mp4_path, fps=fps, codec='libx264', quality=8)
+        # Throttle UI updates — st.progress on every frame is much slower than rendering.
+        progress_step = max(1, n_frames // 50)
         for frame in range(n_frames):
             update(frame)
             agg_canvas.draw()
             rgb = np.array(agg_canvas.buffer_rgba())[..., :3]  # np.array() copies; np.asarray() would alias the renderer's buffer
             frames.append(rgb)
             writer.append_data(rgb)
+            if progress is not None and (frame % progress_step == 0 or frame + 1 == n_frames):
+                # Reserve the last ~10% of the bar for GIF encoding
+                frac = 0.05 + 0.85 * (frame + 1) / n_frames
+                progress.progress(
+                    frac,
+                    text=f"Rendering animation: frame {frame + 1}/{n_frames}",
+                )
         writer.close()
         with open(mp4_path, "rb") as fh:
             video_bytes = fh.read()
 
+        if progress is not None:
+            progress.progress(0.95, text="Encoding GIF preview...")
         gif_buf = io.BytesIO()
         imageio.mimsave(gif_buf, frames, format="GIF", fps=fps, loop=0)
         gif_bytes = gif_buf.getvalue()
+        if progress is not None:
+            progress.progress(1.0, text="Animation ready")
     finally:
         plt.close(fig)
         for fname in os.listdir(tmp_dir):
@@ -613,113 +634,153 @@ def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
 
 
 # ====================================================
-# Sidebar UI
+# Sidebar UI -- wrapped in a form so changing widgets does NOT rerun the
+# script (and therefore does not interrupt / restart generation). Submit with
+# the button or by pressing Enter in a text/number field.
 # ====================================================
 
 with st.sidebar:
     st.header("Input Parameters")
-    target = st.text_input("Target Name", "Algol AB (Beta Persei)")
+    with st.form("generate_form", clear_on_submit=False):
+        target = st.text_input("Target Name", "Algol AB (Beta Persei)")
 
-    st.subheader("Primary Star (Star 1)")
-    m1 = st.number_input("Mass m₁ (M☉)", 0.0001, 300.0000, 3.17, 0.0001, format="%.4f", key="m1")
-    r1 = st.number_input("Radius r₁ (R☉)", 0.0001, 300.0000, 2.73, 0.0001, format="%.4f", key="r1")
-    L1 = st.number_input("Luminosity L₁ (L☉)", 0.0001, 1_000_000.0, 182.0, 0.0001, format="%.4f", key="L1")
-    primary_color = st.color_picker("Color 1", "#00BFFF", key="c1")
+        st.subheader("Primary Star (Star 1)")
+        m1 = st.number_input("Mass m₁ (M☉)", 0.0001, 300.0000, 3.17, 0.0001, format="%.4f")
+        r1 = st.number_input("Radius r₁ (R☉)", 0.0001, 300.0000, 2.73, 0.0001, format="%.4f")
+        L1 = st.number_input("Luminosity L₁ (L☉)", 0.0001, 1_000_000.0, 182.0, 0.0001, format="%.4f")
+        primary_color = st.color_picker("Color 1", "#00BFFF")
 
-    st.subheader("Secondary Star (Star 2)")
-    m2 = st.number_input("Mass m₂ (M☉)", 0.0001, 200.0000, 0.7, 0.0001, format="%.4f", key="m2")
-    r2 = st.number_input("Radius r₂ (R☉)", 0.0001, 200.0000, 3.48, 0.0001, format="%.4f", key="r2")
-    L2 = st.number_input("Luminosity L₂ (L☉)", 0.0001, 1_000_000.0, 6.92, 0.0001, format="%.4f", key="L2")
-    secondary_color = st.color_picker("Color 2", "#FFA500", key="c2")
+        st.subheader("Secondary Star (Star 2)")
+        m2 = st.number_input("Mass m₂ (M☉)", 0.0001, 200.0000, 0.7, 0.0001, format="%.4f")
+        r2 = st.number_input("Radius r₂ (R☉)", 0.0001, 200.0000, 3.48, 0.0001, format="%.4f")
+        L2 = st.number_input("Luminosity L₂ (L☉)", 0.0001, 1_000_000.0, 6.92, 0.0001, format="%.4f")
+        secondary_color = st.color_picker("Color 2", "#FFA500")
 
-    st.subheader("Orbital Elements")
-    orbit_choice = st.radio(
-        "Independent input (the other is derived via Kepler's third law)",
-        ["Period (P)", "Semi-Major Axis (a)"], key="orbit_choice"
-    )
-    orbit_input = "P" if orbit_choice == "Period (P)" else "a"
-    if orbit_input == "P":
-        P_days_in = st.number_input("Period P (days)", 0.0001, 100_000.0, 2.8673, 0.0001, format="%.4f", key="P_days")
-        a_AU_in = 0.0620  # unused placeholder
-    else:
-        a_AU_in = st.number_input("Semi-Major Axis a (AU)", 0.0001, 1000.0, 0.0620, 0.0001, format="%.4f", key="a_AU")
-        P_days_in = 2.8673  # unused placeholder
+        st.subheader("Orbital Elements")
+        orbit_choice = st.radio(
+            "Independent input (the other is derived via Kepler's third law)",
+            ["Period (P)", "Semi-Major Axis (a)"],
+        )
+        orbit_input = "P" if orbit_choice == "Period (P)" else "a"
+        # Both shown inside the form so switching the radio doesn't require a
+        # pre-submit rerun to reveal the other field.
+        P_days_in = st.number_input("Period P (days)", 0.0001, 100_000.0, 2.8673, 0.0001, format="%.4f")
+        a_AU_in = st.number_input("Semi-Major Axis a (AU)", 0.0001, 1000.0, 0.0620, 0.0001, format="%.4f")
+        st.caption("Only the selected independent input above is used; the other is derived.")
 
-    i_deg = st.number_input("Inclination i (deg)", 0.0, 180.0, 98.7, 0.0001, format="%.4f", key="i_deg")
-    e = st.number_input("Eccentricity e", 0.0, 0.99, 0.0, 0.0001, format="%.4f", key="e")
-    omega_deg = st.number_input("Argument of Periastron ω (deg)", 0.0, 360.0, 0.0, 0.0001, format="%.4f", key="omega_deg")
+        i_deg = st.number_input("Inclination i (deg)", 0.0, 180.0, 98.7, 0.0001, format="%.4f")
+        e = st.number_input("Eccentricity e", 0.0, 0.99, 0.0, 0.0001, format="%.4f")
+        omega_deg = st.number_input("Argument of Periastron ω (deg)", 0.0, 360.0, 0.0, 0.0001, format="%.4f")
 
-    st.subheader("Simulation Settings")
-    n_samples = st.select_slider(
-        "Resolution (samples/period)",
-        options=[10_000, 50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000],
-        value=200_000, key="n_samples"
-    )
-    n_periods = st.number_input("Periods to display", 1, 10, 1, key="n_periods")
+        st.subheader("Simulation Settings")
+        n_samples = st.select_slider(
+            "Resolution (samples/period)",
+            options=[10_000, 50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000],
+            value=200_000,
+        )
+        n_periods = st.number_input("Periods to display", 1, 10, 1)
 
-    st.subheader("Animation Settings")
-    n_frames_per_period = st.number_input(
-        "Frames per period", 10, 1000, 200, 10, key="n_frames_per_period"
-    )
-    fps = st.number_input("FPS", 1, 60, 30, 1, key="fps")
+        st.subheader("Animation Settings")
+        n_frames_per_period = st.number_input("Frames per period", 10, 1000, 200, 10)
+        fps = st.number_input("FPS", 1, 60, 30, 1)
+
+        submitted = st.form_submit_button(
+            "Generate light curve", type="primary", use_container_width=True
+        )
 
 
 # ====================================================
-# Run + Render
+# Run + Render (only on explicit Generate / Enter)
 # ====================================================
 
 st.title("Eclipsing Binary Star Light Curve Simulator")
 st.caption("Powered by Matplotlib and NumPy.")
 st.markdown("[Locally-Run Version](https://github.com/etch2025/eclipsing_binary_stars_sim)")
 
+if submitted:
+    res = simulate(
+        m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, omega_deg, n_samples
+    )
 
-res = simulate(m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, omega_deg, n_samples)
+    img_progress = st.progress(0, text="Generating light curve figure...")
+    fig = build_figure(
+        res, r1, r2, i_deg, e, omega_deg, n_periods, target,
+        primary_color, secondary_color, m1, L1, m2, L2,
+    )
+    img_progress.progress(0.55, text="Exporting PNG (dpi=500)...")
+    png_buf = io.BytesIO()
+    fig.savefig(png_buf, format="png", dpi=500, bbox_inches="tight")
+    png_buf.seek(0)
+    png_bytes = png_buf.getvalue()
+    plt.close(fig)
+    img_progress.progress(1.0, text="Figure ready")
+    img_progress.empty()
 
-if not res['eclipses_occur']:
-    st.warning("No eclipse occurs for this geometry — try increasing inclination toward 90°, "
-               "reducing the semi-major axis, or increasing the stellar radii.")
+    download_name = f"{target}_{(res['P']/86400):.3f}d_{res['sma']/AU:.3f}AU_{e:.3f}.png"
 
-fig = build_figure(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
-                    primary_color, secondary_color, m1, L1, m2, L2)
-st.pyplot(fig, width='stretch')
+    anim_progress = st.progress(0, text="Rendering animation...")
+    video_bytes, video_mime, video_ext, gif_bytes, n_frames_anim, fps_anim = build_animation(
+        res, r1, r2, i_deg, e, omega_deg, n_periods, target,
+        primary_color, secondary_color, m1, L1, m2, L2,
+        n_frames_per_period=int(n_frames_per_period), fps=int(fps),
+        progress=anim_progress,
+    )
+    anim_progress.empty()
 
-# Downloadable PNG, named to match the original script's savefig() convention:
-# f'{target}_{(P/86400):.3f}d_{sma/AU:.3f}AU_{e:.3f}.png'
-png_buf = io.BytesIO()
-fig.savefig(png_buf, format="png", dpi=500, bbox_inches="tight")
-png_buf.seek(0)
-download_name = f"{target}_{(res['P']/86400):.3f}d_{res['sma']/AU:.3f}AU_{e:.3f}.png"
+    # Filename matches LC_v5_animation.py's OUTPUT_FILE convention.
+    anim_download_name = (
+        f"{target}_{(res['P']/86400):.3f}d_{res['sma']/AU:.3f}AU_"
+        f"{n_frames_anim}_{e}_{n_frames_anim}frames_{fps_anim}.{video_ext}"
+    )
 
-st.download_button(
-    label="Download light curve (PNG)",
-    data=png_buf,
-    file_name=download_name,
-    mime="image/png",
-)
+    st.session_state["run"] = {
+        "eclipses_occur": res["eclipses_occur"],
+        "png_bytes": png_bytes,
+        "download_name": download_name,
+        "gif_bytes": gif_bytes,
+        "video_bytes": video_bytes,
+        "video_mime": video_mime,
+        "video_ext": video_ext,
+        "anim_download_name": anim_download_name,
+        "diagnostics": build_diagnostics_text(res, m1, m2, r1, e, omega_deg),
+    }
 
-video_bytes, video_mime, video_ext, gif_bytes, n_frames_anim, fps_anim = build_animation(
-    res, r1, r2, i_deg, e, omega_deg, n_periods, target,
-    primary_color, secondary_color, m1, L1, m2, L2,
-    n_frames_per_period=int(n_frames_per_period), fps=int(fps),
-)
-st.image(gif_bytes)
+if "run" in st.session_state:
+    run = st.session_state["run"]
 
-# Filename matches LC_v5_animation.py's OUTPUT_FILE convention.
-anim_download_name = (
-    f"{target}_{(res['P']/86400):.3f}d_{res['sma']/AU:.3f}AU_"
-    f"{n_frames_anim}_{e}_{n_frames_anim}frames_{fps_anim}.{video_ext}"
-)
-st.download_button(
-    label=f"Download orbit animation ({video_ext.upper()})",
-    data=video_bytes,
-    file_name=anim_download_name,
-    mime=video_mime,
-)
+    if not run["eclipses_occur"]:
+        st.warning(
+            "No eclipse occurs for this geometry — try increasing inclination toward 90°, "
+            "reducing the semi-major axis, or increasing the stellar radii."
+        )
 
-st.subheader("Diagnostics")
-for label, tex in build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
-    st.markdown(f"**{label}**")
-    st.latex(tex)
+    st.image(run["png_bytes"])
+
+    st.download_button(
+        label="Download light curve (PNG)",
+        data=run["png_bytes"],
+        file_name=run["download_name"],
+        mime="image/png",
+    )
+
+    st.image(run["gif_bytes"])
+
+    st.download_button(
+        label=f"Download orbit animation ({run['video_ext'].upper()})",
+        data=run["video_bytes"],
+        file_name=run["anim_download_name"],
+        mime=run["video_mime"],
+    )
+
+    st.subheader("Diagnostics")
+    for label, tex in run["diagnostics"]:
+        st.markdown(f"**{label}**")
+        st.latex(tex)
+else:
+    st.info(
+        "Adjust parameters in the sidebar, then click **Generate light curve** "
+        "(or press Enter in a text/number field)."
+    )
 
 with st.expander("About this simulator"):
     st.markdown(
@@ -734,5 +795,7 @@ with st.expander("About this simulator"):
           star happens to be in front -- these can disagree if the star in front is the brighter one.
         - `P` and `a` (semi-major axis) are linked via Kepler's third law using the current masses:
           pick which one is your independent input in the sidebar, and the other updates automatically.
+        - Generation only runs when you click **Generate light curve** (or press Enter) -- changing
+          sidebar settings alone will not restart a render.
         """
     )
