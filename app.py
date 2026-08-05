@@ -737,6 +737,7 @@ with st.sidebar:
 
 st.title("Eclipsing Binary Star Light Curve Simulator")
 st.caption("Powered by Matplotlib and NumPy.")
+st.caption("Created by [Ethan Chen](https://www.chenastronomy.com/)")
 st.markdown("[Locally-Run Version](https://github.com/etch2025/eclipsing_binary_stars_sim)")
 
 if submitted:
