@@ -15,6 +15,7 @@ Major Assumptions (unchanged from the original script):
   you choose as the "independent input" below, the other is derived automatically.
 """
 
+import gc
 import io
 import os
 import tempfile
@@ -42,6 +43,22 @@ M_Sol = 1.99e30    # Solar Mass, kg
 L_Sol = 3.9e26     # Solar Luminosity, W
 R_Sol = 6.96e8     # Solar Radius, m
 YR = 365 * 24 * 60 * 60  # Julian year, s
+
+# Hard ceiling on total rendered animation frames, independent of what the sidebar
+# sliders technically allow (n_frames_per_period up to 1000 x n_periods up to 10 = 10,000,
+# which at ~2.3 MB/frame would try to buffer ~23 GB -- see build_animation for why this
+# matters). Frames beyond this cap are evenly dropped so the requested duration/fps is
+# still respected, just at a coarser sample rate.
+MAX_TOTAL_ANIM_FRAMES = 600
+
+# The GIF preview needs its own, much tighter budget: imageio's pillow-based GIF
+# writer buffers every appended frame internally to build the animation (regardless
+# of calling append_data() one at a time), so its memory scales with frame count x
+# resolution no matter how it's fed. Measured ~2.4GB for 600 full-res frames vs
+# ~215MB for 100 frames downsampled 2x -- since the GIF is only an inline preview
+# (the mp4 is the real deliverable), it doesn't need the same frame count/resolution.
+GIF_MAX_FRAMES = 100
+GIF_DOWNSCALE = 2  # every Nth pixel in each dimension -> 1/N^2 the pixels
 
 st.set_page_config(page_title="Eclipsing Binary Simulator", layout="wide")
 
@@ -159,7 +176,14 @@ def get_segments_circular(mask):
 # doesn't re-run the (potentially expensive) Kepler solve.
 # ====================================================
 
-@st.cache_data(show_spinner="Solving Kepler's equation and scanning the orbit...")
+@st.cache_data(
+    show_spinner="Solving Kepler's equation and scanning the orbit...",
+    max_entries=5,   # each entry is ~7 arrays x n_samples floats (<=28MB at the
+                     # current 500k-sample max); cap so old parameter combos
+                     # (including other users' on a shared deployment) get
+                     # evicted instead of piling up forever
+    ttl=1800,
+)
 def simulate(m1, r1, L1, m2, r2, L2, orbit_input, P_days_in, a_AU_in, i_deg, e, omega_deg, n_samples):
     A1 = np.pi * r1**2
     A2 = np.pi * r2**2
@@ -479,7 +503,8 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
     _x, _y, z_bg, d_bg, _r, _nu = orbit_state(t_bg, w, e, a_Rsol, om, inc)
     L_bg = flux(d_bg, z_bg, r1, r2, L1, L2, A1, A2, L_total)
 
-    n_frames = int(n_frames_per_period * n_periods)
+    n_frames_requested = int(n_frames_per_period * n_periods)
+    n_frames = min(n_frames_requested, MAX_TOTAL_ANIM_FRAMES)
     t_frames = np.linspace(0, n_periods * P, n_frames, endpoint=False)
     x_f, y_f, z_f, d_f, r_f, nu_f = orbit_state(t_frames, w, e, a_Rsol, om, inc)
     L_f = flux(d_f, z_f, r1, r2, L1, L2, A1, A2, L_total)
@@ -572,33 +597,44 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
 
     tmp_dir = tempfile.mkdtemp()
     mp4_path = os.path.join(tmp_dir, "anim.mp4")
+    gif_path = os.path.join(tmp_dir, "anim.gif")
+    # GIF gets its own sparse index set (see GIF_MAX_FRAMES note above) so it never
+    # scales with the mp4's (much larger) frame budget.
+    n_gif_frames = min(n_frames, GIF_MAX_FRAMES)
+    gif_indices = set(np.linspace(0, n_frames - 1, n_gif_frames, dtype=int).tolist())
+    gif_fps = max(1, round(fps * n_gif_frames / n_frames)) if n_frames else fps
     try:
-        frames = []
-        writer = imageio.get_writer(mp4_path, fps=fps, codec='libx264', quality=8)
+        mp4_writer = imageio.get_writer(mp4_path, fps=fps, codec='libx264', quality=8)
+        gif_writer = imageio.get_writer(gif_path, format='GIF', fps=gif_fps, loop=0)
         # Throttle UI updates — st.progress on every frame is much slower than rendering.
         progress_step = max(1, n_frames // 50)
-        for frame in range(n_frames):
-            update(frame)
-            agg_canvas.draw()
-            rgb = np.array(agg_canvas.buffer_rgba())[..., :3]  # np.array() copies; np.asarray() would alias the renderer's buffer
-            frames.append(rgb)
-            writer.append_data(rgb)
-            if progress is not None and (frame % progress_step == 0 or frame + 1 == n_frames):
-                # Reserve the last ~10% of the bar for GIF encoding
-                frac = 0.05 + 0.85 * (frame + 1) / n_frames
-                progress.progress(
-                    frac,
-                    text=f"Rendering animation: frame {frame + 1}/{n_frames}",
-                )
-        writer.close()
+        try:
+            for frame in range(n_frames):
+                update(frame)
+                agg_canvas.draw()
+                # np.array() copies; np.asarray() would alias the renderer's buffer, which
+                # gets overwritten on the next draw() call.
+                rgb = np.array(agg_canvas.buffer_rgba())[..., :3]
+                mp4_writer.append_data(rgb)
+                if frame in gif_indices:
+                    gif_writer.append_data(rgb[::GIF_DOWNSCALE, ::GIF_DOWNSCALE, :])
+                del rgb  # each frame is written and discarded immediately -- nothing
+                         # accumulates across the loop for the mp4 side; the GIF side
+                         # still buffers internally, but only ~100 downscaled frames
+                if progress is not None and (frame % progress_step == 0 or frame + 1 == n_frames):
+                    frac = 0.05 + 0.90 * (frame + 1) / n_frames
+                    progress.progress(
+                        frac,
+                        text=f"Rendering animation: frame {frame + 1}/{n_frames}",
+                    )
+        finally:
+            mp4_writer.close()
+            gif_writer.close()
+
         with open(mp4_path, "rb") as fh:
             video_bytes = fh.read()
-
-        if progress is not None:
-            progress.progress(0.95, text="Encoding GIF preview...")
-        gif_buf = io.BytesIO()
-        imageio.mimsave(gif_buf, frames, format="GIF", fps=fps, loop=0)
-        gif_bytes = gif_buf.getvalue()
+        with open(gif_path, "rb") as fh:
+            gif_bytes = fh.read()
         if progress is not None:
             progress.progress(1.0, text="Animation ready")
     finally:
@@ -606,8 +642,10 @@ def build_animation(res, r1, r2, i_deg, e, omega_deg, n_periods, target,
         for fname in os.listdir(tmp_dir):
             os.remove(os.path.join(tmp_dir, fname))
         os.rmdir(tmp_dir)
+        gc.collect()  # return the freed frame/figure memory to the allocator promptly
+                      # rather than leaving it for Python's normal (lazier) GC cycle
 
-    return video_bytes, "video/mp4", "mp4", gif_bytes, n_frames_per_period, fps
+    return video_bytes, "video/mp4", "mp4", gif_bytes, n_frames, fps
 
 
 def build_diagnostics_text(res, m1, m2, r1, e, omega_deg):
@@ -717,8 +755,12 @@ with st.sidebar:
         st.subheader("Simulation Settings")
         n_samples = st.select_slider(
             "Resolution (samples/period)",
-            options=[10_000, 50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000],
+            options=[10_000, 50_000, 100_000, 200_000, 500_000],
             value=200_000,
+        )
+        st.caption(
+            "Each cached result is kept in memory for a while so re-running the same "
+            "settings is instant; higher resolutions cost more memory per cached entry."
         )
         n_periods = st.number_input("Periods to display", 1, 10, 1)
 
@@ -756,10 +798,21 @@ if submitted:
     png_buf.seek(0)
     png_bytes = png_buf.getvalue()
     plt.close(fig)
+    del png_buf
+    gc.collect()  # free the ~150-250MB high-dpi render buffer before the heavier
+                  # animation step starts, rather than let it linger
     img_progress.progress(1.0, text="Figure ready")
     img_progress.empty()
 
     download_name = f"{target}_{(res['P']/86400):.3f}d_{res['sma']/AU:.3f}AU_{e:.3f}.png"
+
+    n_frames_requested = int(n_frames_per_period) * int(n_periods)
+    if n_frames_requested > MAX_TOTAL_ANIM_FRAMES:
+        st.caption(
+            f"Requested {n_frames_requested} animation frames, capped to "
+            f"{MAX_TOTAL_ANIM_FRAMES} to stay within the app's memory limit. "
+            "The animation covers the same time span at a slightly coarser frame rate."
+        )
 
     anim_progress = st.progress(0, text="Rendering animation...")
     video_bytes, video_mime, video_ext, gif_bytes, n_frames_anim, fps_anim = build_animation(
@@ -769,6 +822,7 @@ if submitted:
         progress=anim_progress,
     )
     anim_progress.empty()
+    gc.collect()  # release frame-render memory before it sits in session_state
 
     # Filename matches LC_v5_animation.py's OUTPUT_FILE convention.
     anim_download_name = (
